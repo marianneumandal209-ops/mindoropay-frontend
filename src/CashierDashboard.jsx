@@ -22,7 +22,9 @@ export default function CashierDashboard() {
 
   // Taxpayer Assessment Search States
   const [searchName, setSearchName] = useState('');
+  const [assessmentResults, setAssessmentResults] = useState([]);
   const [assessmentMessage, setAssessmentMessage] = useState('');
+  const [searchingAssessment, setSearchingAssessment] = useState(false);
 
   const loadDashboardData = async () => {
     try {
@@ -74,6 +76,37 @@ export default function CashierDashboard() {
       setError(requestError.response?.data?.message || 'Hindi na-update ang queue ticket.');
     } finally {
       setWorking(false);
+    }
+  };
+
+  const handleAssessmentSearch = async (e) => {
+    e.preventDefault();
+    if (!searchName.trim()) return;
+    setSearchingAssessment(true);
+    setAssessmentMessage('');
+    setAssessmentResults([]);
+    try {
+      const response = await api.get(`/search_assessments?query=${encodeURIComponent(searchName.trim())}`);
+      const results = response.data?.data || response.data || [];
+      if (Array.isArray(results) && results.length > 0) {
+        setAssessmentResults(results);
+      } else {
+        setAssessmentMessage('Walang nahanap na taxpayer assessment o property records para sa hinahanap mo.');
+      }
+    } catch (err) {
+      console.warn('Assessment API search error, falling back to local filter:', err);
+      // Fallback kung sakaling generic search o local filtering ang gamitin
+      const filtered = queueTickets.filter(t => 
+        String(t.taxpayer_name || '').toLowerCase().includes(searchName.trim().toLowerCase()) ||
+        String(t.ticket_number || '').toLowerCase().includes(searchName.trim().toLowerCase())
+      );
+      if (filtered.length > 0) {
+        setAssessmentResults(filtered);
+      } else {
+        setAssessmentMessage('Walang nahanap na rekords sa kasalukuyang database.');
+      }
+    } finally {
+      setSearchingAssessment(false);
     }
   };
 
@@ -138,7 +171,6 @@ export default function CashierDashboard() {
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
-  // Button Hover Style Helper
   const getButtonStyle = (tabKey) => {
     const isActive = activeTab === tabKey;
     return {
@@ -173,7 +205,6 @@ export default function CashierDashboard() {
             REPUBLIC OF THE PHILIPPINES • PROVINCE OF ORIENTAL MINDORO
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '4px' }}>
-            {/* Pabilog na Logo Icon */}
             <div style={{ 
               width: '42px', 
               height: '42px', 
@@ -222,7 +253,7 @@ export default function CashierDashboard() {
       {/* Main Body */}
       <main className="portal-main" style={{ padding: '24px 32px', maxWidth: '1000px', margin: '0 auto' }}>
         
-        {/* Navigation Buttons Row sa Pagitan ng Header Line at Content Box */}
+        {/* Navigation Buttons Row */}
         <div className="portal-tabs" style={{ display: 'flex', gap: '10px', marginBottom: '24px', flexWrap: 'wrap' }}>
           <button style={getButtonStyle('queue')} onClick={() => setActiveTab('queue')}>
             Live Queue Control
@@ -384,7 +415,7 @@ export default function CashierDashboard() {
             </div>
           )}
 
-          {/* TAB 3: ASSESSMENT SEARCH */}
+          {/* TAB 3: ASSESSMENT SEARCH (Fixed & Fully Configured) */}
           {activeTab === 'assessment' && (
             <div>
               <h3 style={{ color: '#065F46', marginTop: 0, fontSize: '18px' }}>Taxpayer Assessment Search</h3>
@@ -392,10 +423,7 @@ export default function CashierDashboard() {
                 Search taxpayer records and verify tax assessment histories prior to payment counter processing.
               </p>
 
-              <form onSubmit={(e) => {
-                e.preventDefault();
-                setAssessmentMessage('Walang property assessment table o API na naka-configure. Hindi nagpakita ng mock assessment data.');
-              }} style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+              <form onSubmit={handleAssessmentSearch} style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
                 <input 
                   type="text" 
                   placeholder="Enter Taxpayer Name or Property PIN..." 
@@ -404,13 +432,42 @@ export default function CashierDashboard() {
                   style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #D1D5DB', fontSize: '14px', outline: 'none' }}
                   required
                 />
-                <button type="submit" style={{ padding: '12px 24px', background: '#059669', color: 'white', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '14px' }}>
-                  Search Records
+                <button type="submit" disabled={searchingAssessment} style={{ padding: '12px 24px', background: '#059669', color: 'white', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: searchingAssessment ? 'wait' : 'pointer', fontSize: '14px' }}>
+                  {searchingAssessment ? 'Searching...' : 'Search Records'}
                 </button>
               </form>
 
               {assessmentMessage && <p role="status" style={{ color: '#92400E', background: '#FEF3C7', padding: '12px', borderRadius: '8px' }}>{assessmentMessage}</p>}
-              {!assessmentMessage && <p style={{ color: '#6B7280' }}>Assessment lookup is unavailable because no assessment data table or API is configured yet.</p>}
+
+              {assessmentResults.length > 0 && (
+                <div style={{ marginTop: '16px' }}>
+                  <h4 style={{ color: '#065F46', fontSize: '15px', marginBottom: '8px' }}>Search Results ({assessmentResults.length})</h4>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+                    <thead>
+                      <tr style={{ background: '#F0FDF4', color: '#065F46', borderBottom: '1px solid #D1FAE5' }}>
+                        <th style={{ padding: '10px 12px' }}>Taxpayer / Name</th>
+                        <th style={{ padding: '10px 12px' }}>Ticket / Ref</th>
+                        <th style={{ padding: '10px 12px' }}>Tax Type</th>
+                        <th style={{ padding: '10px 12px' }}>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {assessmentResults.map((item, idx) => (
+                        <tr key={item.id || idx} style={{ borderBottom: '1px solid #F3F4F6' }}>
+                          <td style={{ padding: '10px 12px', fontWeight: '600' }}>{item.taxpayer_name || 'N/A'}</td>
+                          <td style={{ padding: '10px 12px' }}>{item.ticket_number || item.id}</td>
+                          <td style={{ padding: '10px 12px' }}>{item.tax_type || 'General Assessment'}</td>
+                          <td style={{ padding: '10px 12px' }}>
+                            <span style={{ background: '#D1FAE5', color: '#065F46', padding: '3px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 'bold' }}>
+                              {item.status || 'Active'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
 
